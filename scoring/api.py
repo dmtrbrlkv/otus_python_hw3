@@ -239,6 +239,48 @@ class ClientIDsField(Field):
         return isinstance(value, list) and value
 
 
+
+# ====Coprocessor====
+
+class Coprocessor:
+    """
+    If request class has other process classes then class must have attribute
+    coprocessor = Coprocessor(<field containing value of coprocessor name>,
+                              <field containing value of coprocessor arguments>)
+    """
+
+    def __init__(self, coprocessor_name, coprocessor_args):
+        self.coprocessor_name = coprocessor_name
+        self.coprocessor_args = coprocessor_args
+
+    def __get__(self, instance, owner):
+        if not hasattr(instance, "_coprocessors"):
+            return None
+        coprocessor_name = getattr(instance, self.coprocessor_name)
+        if coprocessor_name not in instance._coprocessors:
+            raise ValueError(f"coprocessor '{coprocessor_name}' not implemented")
+        cls = instance._coprocessors[coprocessor_name]
+        obj = cls.from_request(instance.ctx, instance.store, getattr(instance, self.coprocessor_args))
+        obj.request = instance
+        return obj
+
+
+def coprocessor(processor):
+    """
+    Decorator for coprocessor classes
+    If class is coprocessor for RequestClass, he must decorated
+    @coprocessor(<RequestClass>)
+    class CoprocessorClass(Request):
+    """
+
+    def wrapper(cls):
+        if not hasattr(processor, "_coprocessors"):
+            processor._coprocessors = {}
+        processor._coprocessors[cls.coprocessor_name] = cls
+        return cls
+    return wrapper
+
+
 # ====Request classes====
 
 class MetaRequest(type):
@@ -266,12 +308,17 @@ class Request(metaclass=MetaRequest):
     """
 
     @classmethod
-    def from_request(cls, attrs, request=None):
+    def from_request(cls, ctx, store, attrs):
         """return Request instance with seted attributes"""
-        obj = cls()
+        obj = cls(ctx, store)
         obj.set_attributes(attrs)
-        obj.request = request
         return obj
+
+    def __init__(self, ctx, store, need_validation=True, need_auth=False):
+        self.ctx = ctx
+        self.store = store
+        self.need_validation = need_validation or True
+        self.need_auth = need_auth or False
 
     def set_attributes(self, attrs):
         """set fields values"""
@@ -285,16 +332,43 @@ class Request(metaclass=MetaRequest):
         """
 
         invalid_fields = []
-        invalid_reasons = []
         for field_name, field in self.declared_fields.items():
-            res = field.validate(self)
-            if not res.is_valid:
+            if not field.validate(self):
                 invalid_fields.append(field_name)
-                invalid_reasons.append(res.reason)
         if invalid_fields:
-            return validation_res(False, "Invalid fields: " + ",".join(invalid_reasons))
+            return validation_res(False, "Invalid fields: " + ", ".join(invalid_fields))
 
         return validation_res(True, "")
+
+    def filled_fields(self):
+        """
+        return list of field names which has value
+        """
+
+        res = []
+        for field_name, field in self.declared_fields.items():
+            if field.is_not_empty_value(self):
+                res.append(field_name)
+        return res
+
+    def process(self):
+        """
+        Process request
+        If needed validate fields, check authenticate and run coprocessor
+        """
+        if self.need_validation:
+            validation = self.validate()
+            if not validation.is_valid:
+                return validation.reason, INVALID_REQUEST
+
+        if self.need_auth:
+            if not check_auth(self):
+                return ERRORS[FORBIDDEN], FORBIDDEN
+
+        if hasattr(self, "coprocessor"):
+            return self.coprocessor.process()
+
+        return None
 
 
 class MethodRequest(Request):
@@ -304,16 +378,69 @@ class MethodRequest(Request):
     arguments = ArgumentsField(required=True, nullable=True)
     method = CharField(required=True, nullable=False)
 
+    coprocessor = Coprocessor("method", "arguments")
+
+    def __init__(self, ctx, store, need_validation=None, need_auth=None):
+        need_validation = need_validation or True
+        need_auth = need_auth or True
+        super().__init__(ctx, store, need_validation, need_auth)
+
     @property
     def is_admin(self):
         return self.login == ADMIN_LOGIN
 
+"""
+Coprocessor simple template
 
+@coprocessor(MethodRequest)
+class SimpleCoprocessor(Request):
+    coprocessor_name = "simple"
+    field1 = CharField(required=True, nullable=False)
+    field2 = EmailField(required=True, nullable=False)
+
+
+    def validate(self):
+        base_validation = super().validate()
+        if not base_validation.is_valid:
+            return base_validation
+        # check something
+        if not (self.field1 == "42" and self.field2 == "admin@admin.admin"):
+            return validation_res(False, "something wrong")
+        return validation_res(True, "")
+
+    def process(self):
+        res = super().process()
+        if res:
+            return res
+        # do something
+        res = f"your choice is {self.field1}"
+        return res, OK
+"""
+
+@coprocessor(MethodRequest)
 class ClientsInterestsRequest(Request):
     client_ids = ClientIDsField(required=True)
     date = DateField(required=False, nullable=True)
+    coprocessor_name = "clients_interests"
+
+    def __init__(self, ctx, store, need_validation=None, need_auth=None):
+        need_validation = need_validation or True
+        need_auth = need_auth or False
+        super().__init__(ctx, store, need_validation, need_auth)
+
+    def process(self):
+        res = super().process()
+        if res:
+            return res
+        res = {}
+        for id in self.client_ids:
+            res[id] = get_interests(self.store, id)
+
+        self.ctx["nclients"] = len(self.client_ids)
+        return res, OK
 
 
+@coprocessor(MethodRequest)
 class OnlineScoreRequest(Request):
     first_name = CharField(required=False, nullable=True)
     last_name = CharField(required=False, nullable=True)
@@ -321,6 +448,12 @@ class OnlineScoreRequest(Request):
     phone = PhoneField(required=False, nullable=True)
     birthday = BirthDayField(required=False, nullable=True)
     gender = GenderField(required=False, nullable=True)
+    coprocessor_name = "online_score"
+
+    def __init__(self, ctx, store, need_validation=None, need_auth=None):
+        need_validation = need_validation or True
+        need_auth = need_auth or False
+        super().__init__(ctx, store, need_validation, need_auth)
 
     def validate(self):
         base_validation = super().validate()
@@ -335,16 +468,16 @@ class OnlineScoreRequest(Request):
                                          "'Gender - Birthday'")
         return validation_res(True, "")
 
-    def filled_fields(self):
-        """
-        return list of field names which has value
-        """
+    def process(self):
+        res = super().process()
+        if res:
+            return res
 
-        res = []
-        for field_name, field in self.declared_fields.items():
-            if field.is_not_empty_value(self):
-                res.append(field_name)
-        return res
+        self.ctx["has"] = self.filled_fields()
+
+        return {"score": 42 if self.request.is_admin else get_score(self.store, self.phone, self.email, self.birthday,
+                                                                    self.gender, self.first_name, self.last_name)
+                }, OK
 
 
 def check_auth(request):
@@ -357,58 +490,14 @@ def check_auth(request):
     return False
 
 
-def process_method_request(request, ctx, store):
-    methods_cls = {
-        "clients_interests": ClientsInterestsRequest,
-        "online_score": OnlineScoreRequest
-    }
-
-    methods_process = {
-        "clients_interests": process_clients_interests_request,
-        "online_score": process_online_score_interests_request
-    }
-
-    method = request.method
-    if method not in methods_cls:
-        raise NotImplementedError(f"Method {method} not implemented")
-
-    sub_cls = methods_cls[method]
-    sub_request = sub_cls.from_request(request.arguments, request)
-    sub_process = methods_process[method]
-    validation = sub_request.validate()
-    if not validation.is_valid:
-        return validation.reason, INVALID_REQUEST
-    return sub_process(sub_request, ctx, store)
-
-
-def process_clients_interests_request(request, ctx, store):
-    res = {}
-    for id in request.client_ids:
-        res[id] = get_interests(store, id)
-
-    ctx["nclients"] = len(request.client_ids)
-    return res, OK
-
-
-def process_online_score_interests_request(request, ctx, store):
-    ctx["has"] = request.filled_fields()
-
-    return {"score": 42 if request.request.is_admin else get_score(store, request.phone, request.email,
-                                                                   request.birthday, request.gender, request.first_name,
-                                                                   request.last_name)
-            }, OK
-
-
 def method_handler(request, ctx, store):
-    method_request = MethodRequest.from_request(request["body"])
-    validation = method_request.validate()
-    if not validation.is_valid:
-        return validation.reason, INVALID_REQUEST
+    response, code = "OK", 200
 
-    if not check_auth(method_request):
-        return ERRORS[FORBIDDEN], FORBIDDEN
+    # method_request = MethodRequest(ctx, store)
+    # method_request.set_attributes()
 
-    return process_method_request(method_request, ctx, store)
+    method_request = MethodRequest.from_request(ctx, store, request["body"])
+    return method_request.process()
 
 
 class MainHTTPHandler(BaseHTTPRequestHandler):
