@@ -42,6 +42,9 @@ validation_res = namedtuple("validation_res", ["is_valid", "reason"])
 
 
 # ====Fields====
+class FieldValidationError(Exception):
+    pass
+
 
 class Field(metaclass=ABCMeta):
     """
@@ -72,9 +75,9 @@ class Field(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def is_valid_value(self, instance):
+    def check_valid_value(self, instance):
         """
-        Return True if value is valid
+        Raise FieldValidationError if value not valid
         Must present in child
         """
 
@@ -85,19 +88,18 @@ class Field(metaclass=ABCMeta):
             return validation_res(True, "")
         if not self.nullable and not self.is_not_empty_value(instance):
             return validation_res(False, f"field '{self.label}' is empty")
-        if not self.is_valid_value(instance):
-            return validation_res(False, f"field '{self.label}', invalid value: {str(getattr(instance, self.name, None))} "
-                                         f"({self.not_valid_add_info})")
+        try:
+            self.check_valid_value(instance)
+        except FieldValidationError as e:
+            return validation_res(False, f"field '{self.label}', invalid value: {str(getattr(instance, self.name, None))} ({e})")
         return validation_res(True, "")
 
 
 class CharField(Field):
-    def is_valid_value(self, instance):
+    def check_valid_value(self, instance):
         value = getattr(instance, self.name, None)
         if not isinstance(value, str):
-            self.not_valid_add_info = "not 'str' type"
-            return False
-        return True
+            raise FieldValidationError("not 'str' type")
 
     def is_not_empty_value(self, instance):
         value = getattr(instance, self.name, None)
@@ -105,12 +107,10 @@ class CharField(Field):
 
 
 class ArgumentsField(Field):
-    def is_valid_value(self, instance):
+    def check_valid_value(self, instance):
         value = getattr(instance, self.name, None)
         if not isinstance(value, dict):
-            self.not_valid_add_info = "not 'dict' type"
-            return False
-        return True
+            raise FieldValidationError("not 'dict' type")
 
     def is_not_empty_value(self, instance):
         value = getattr(instance, self.name, None)
@@ -118,14 +118,11 @@ class ArgumentsField(Field):
 
 
 class EmailField(CharField):
-    def is_valid_value(self, instance):
+    def check_valid_value(self, instance):
         value = getattr(instance, self.name, None)
-        if not super().is_valid_value(instance):
-            return False
+        super().check_valid_value(instance)
         if "@" not in value:
-            self.not_valid_add_info = "'@' not present"
-            return False
-        return True
+            raise FieldValidationError("'@' not present")
 
     def is_not_empty_value(self, instance):
         value = getattr(instance, self.name, None)
@@ -133,22 +130,18 @@ class EmailField(CharField):
 
 
 class PhoneField(Field):
-    def is_valid_value(self, instance):
+    def check_valid_value(self, instance):
         value = getattr(instance, self.name, None)
         if not isinstance(value, (int, str)):
-            self.not_valid_add_info = "not '(int, str)' type"
-            return False
+            raise FieldValidationError("not '(int, str)' type")
+
         value_str = str(getattr(instance, self.name, None))
         if not value_str.isdigit():
-            self.not_valid_add_info = "not digit"
-            return False
+            raise FieldValidationError("not digit")
         if not (len(value_str) == 11):
-            self.not_valid_add_info = "must be 11 digits"
-            return False
+            raise FieldValidationError("must be 11 digits")
         if not (value_str[0] == "7"):
-            self.not_valid_add_info = "must start by '7'"
-            return False
-        return True
+            raise FieldValidationError("must start by '7'")
 
     def is_not_empty_value(self, instance):
         value = getattr(instance, self.name, None)
@@ -163,26 +156,22 @@ class DateField(CharField):
 
     def get_date(self, instance):
         value = getattr(instance, self.name, None)
+        date = self.template.match(value)
+        year, month, day = map(int, (date.group("year"), date.group("month"), date.group("day")))
+        return datetime.date(year, month, day)
+
+    def check_valid_value(self, instance):
+        value = getattr(instance, self.name, None)
         if not isinstance(value, str):
-            self.not_valid_add_info = "not 'str' type"
-            return None
+            raise FieldValidationError("not 'str' type")
         try:
             date = self.template.match(value)
             if not date:
-                self.not_valid_add_info = "does not match 'DD.MM.YYYY' pattern"
-                return None
+                raise FieldValidationError("does not match 'DD.MM.YYYY' pattern")
             year, month, day = map(int, (date.group("year"), date.group("month"), date.group("day")))
             date = datetime.date(year, month, day)
         except:
-            self.not_valid_add_info = "can't convert to date"
-            return None
-        return date
-
-    def is_valid_value(self, instance):
-        date = self.get_date(instance)
-        if date is None:
-            return False
-        return True
+            raise FieldValidationError("can't convert to date")
 
     def is_not_empty_value(self, instance):
         value = getattr(instance, self.name, None)
@@ -193,30 +182,24 @@ class BirthDayField(DateField):
     pattern = r"^(?P<day>\d{2})\.(?P<month>\d{2})\.(?P<year>\d{4})$"
     template = re.compile(pattern)
 
-    def is_valid_value(self, instance):
-        if not super().is_valid_value(instance):
-            return False
+    def check_valid_value(self, instance):
+        super().check_valid_value(instance)
         date = self.get_date(instance)
         today = datetime.date.today()
         if (today - date) > (datetime.timedelta(days=365) * MAX_YEARS_FOR_BIRTHDAY):
-            self.not_valid_add_info = f"Not older than {MAX_YEARS_FOR_BIRTHDAY} years"
-            return False
-        return True
+            raise FieldValidationError(f"Not older than {MAX_YEARS_FOR_BIRTHDAY} years")
 
     def is_not_empty_value(self, instance):
         return super().is_not_empty_value(instance)
 
 
 class GenderField(Field):
-    def is_valid_value(self, instance):
+    def check_valid_value(self, instance):
         value = getattr(instance, self.name, None)
         if not isinstance(value, int):
-            self.not_valid_add_info = "not 'int' type"
-            return False
+            raise FieldValidationError("not 'int' type")
         if value not in GENDERS:
-            self.not_valid_add_info = "must by from <" + ", ".join(map(str, GENDERS.keys())) + ">"
-            return False
-        return True
+            raise FieldValidationError("must by from <" + ", ".join(map(str, GENDERS.keys())) + ">")
 
     def is_not_empty_value(self, instance):
         value = getattr(instance, self.name, None)
@@ -224,15 +207,12 @@ class GenderField(Field):
 
 
 class ClientIDsField(Field):
-    def is_valid_value(self, instance):
+    def check_valid_value(self, instance):
         value = getattr(instance, self.name, None)
         if not isinstance(value, list):
-            self.not_valid_add_info = "not 'list' type"
-            return False
+            raise FieldValidationError("not 'list' type")
         if not all(isinstance(x, int) for x in value):
-            self.not_valid_add_info = "one or more element not 'int' type"
-            return False
-        return True
+            raise FieldValidationError("one or more element not 'int' type")
 
     def is_not_empty_value(self, instance):
         value = getattr(instance, self.name, None)
