@@ -12,6 +12,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from collections import namedtuple
 import re
 from scoring import get_interests, get_score
+from store import Store
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
@@ -55,7 +56,6 @@ class Field(metaclass=ABCMeta):
     def __init__(self, required=False, nullable=False):
         self.required = required
         self.nullable = nullable
-        self.not_valid_add_info = ""
 
     def __set__(self, instance, value):
         setattr(instance, self.name, value)
@@ -176,6 +176,11 @@ class DateField(CharField):
     def is_not_empty_value(self, instance):
         value = getattr(instance, self.name, None)
         return isinstance(value, str) and value != ""
+
+    def __get__(self, instance, owner):
+        if self.is_not_empty_value(instance):
+            return self.get_date(instance)
+        return None
 
 
 class BirthDayField(DateField):
@@ -395,7 +400,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = None
+    store = Store()
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
