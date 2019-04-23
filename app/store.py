@@ -1,12 +1,7 @@
 import tarantool
-import time
 import logging
 import datetime
 import json
-
-# tarantool.connection.CONNECTION_TIMEOUT = 5
-# tarantool.RECONNECT_MAX_ATTEMPTS = 100
-# tarantool.RECONNECT_DELAY = 1
 
 
 class Store:

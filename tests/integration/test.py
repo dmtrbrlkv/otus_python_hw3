@@ -2,15 +2,8 @@ from os.path import dirname, join
 import sys
 sys.path.append(join(dirname(dirname(dirname(__file__))), "app"))
 
-
-import hashlib
-import datetime
-import functools
 import unittest
-
 from app import api, store
-
-import json
 import subprocess
 import requests
 from os.path import dirname
