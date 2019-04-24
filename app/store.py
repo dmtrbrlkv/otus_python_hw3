@@ -16,7 +16,6 @@ class Store:
                                                connect_now=False)
         self.log = log or logging
         self.cache_valid_thru = {}
-        self.attempt = 0
 
     @staticmethod
     def get_id(key):
@@ -39,28 +38,25 @@ class Store:
         id = self.get_id(key)
         if id is None:
             raise ValueError("Invalid key")
-        self.attempt = self.attempt or 0
-        try:
-            space = self.get_space(key)
-            response = space.select(id)
-            self.attempt = 0
-            if not response.data:
-                return json.dumps([""])
-            value = response.data[0][1]
-            return json.dumps(value)
-        except tarantool.error.NetworkError as e:
-            self.attempt += 1
-            while self.attempt <= self.reconnect_n:
+        attempt = 0
+        while attempt < self.reconnect_n:
+            try:
+                space = self.get_space(key)
+                response = space.select(id)
+                if not response.data:
+                    return json.dumps([""])
+                value = response.data[0][1]
+                return json.dumps(value)
+            except tarantool.error.NetworkError as e:
+                attempt += 1
                 self.log.info(f"connection error - {e}, reconnecting after {self.reconnect_delay} seconds, "
-                              f"attempt {self.attempt} of {self.reconnect_n}")
+                              f"attempt {attempt} of {self.reconnect_n}")
                 next_try = datetime.datetime.today() + datetime.timedelta(seconds=self.reconnect_delay)
                 while datetime.datetime.today() < next_try:
                     pass
-                if self.connect():
-                    return self.get(key)
-                self.attempt += 1
-            else:
-                raise ConnectionError(e)
+                self.connect()
+
+        raise ConnectionError("Unable connect to the store")
 
     def cache_get(self, key):
         id = self.get_id(key)

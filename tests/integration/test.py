@@ -17,7 +17,6 @@ class TestAvailableStoreIntegration(unittest.TestCase):
         d.wait(2)
         time.sleep(2)
 
-
     def tearDown(self):
         d = subprocess.Popen(["docker", "stop", "mytarantool"])
         d.wait(2)
@@ -37,7 +36,6 @@ class TestAvailableStoreIntegration(unittest.TestCase):
     def test_cache_set(self):
         mstore = store.Store()
         self.assertTrue(mstore.cache_set("i:42", ["42"], 1))
-
 
 
 class TestNotAvailableStoreIntegration(unittest.TestCase):
