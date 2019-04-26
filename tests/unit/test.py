@@ -1,11 +1,8 @@
-# from os.path import dirname, join
-# import sys
-# sys.path.append(join(dirname(dirname(dirname(__file__))), "app"))
 import tests.helpers.import_app
 
 from tests.helpers.cases import cases as cases
 import unittest
-from app import api, store, scoring
+from app import api, scoring
 import json
 
 

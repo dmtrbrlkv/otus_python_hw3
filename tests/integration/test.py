@@ -1,16 +1,6 @@
-# from os.path import dirname, join
-# import sys
-# sys.path.append(join(dirname(dirname(dirname(__file__))), "app"))
 import tests.helpers.import_app
-
-from tests.helpers.cases import cases as cases
 import unittest
-from app import api, store
-import subprocess
-import requests
-from os.path import dirname
-import os.path
-import time
+from app import store
 from tests.helpers.tarantool import get_tarantool_address as get_tarantool_address
 
 

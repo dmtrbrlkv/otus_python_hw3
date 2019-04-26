@@ -149,14 +149,12 @@ class TestFunctional(unittest.TestCase):
         os.chdir(api_dir)
         p = subprocess.Popen(["python", "api.py", "-p", "8080"])
         self.p = p
-        # d = subprocess.Popen(["docker", "start", "mytarantool"])
 
     def tearDown(self):
         self.p.kill()
-        # subprocess.Popen(["docker", "stop", "mytarantool"])
         os.chdir(dirname(__file__))
 
-    def test_clients_interests_requset(self):
+    def test_clients_interests_request(self):
         headers = {"Content-Type": "application/json"}
         data = """{
                 "account": "horns&hoofs",
@@ -179,7 +177,7 @@ class TestFunctional(unittest.TestCase):
         data = response.json()
         self.assertEqual(data["response"]["2"], ["sport", "cars"])
 
-    def test_score_requset(self):
+    def test_score_request(self):
         headers = {"Content-Type": "application/json"}
         data = """{
                 "account": "horns&hoofs",
