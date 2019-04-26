@@ -15,14 +15,18 @@ class TestSuite(unittest.TestCase):
     def setUp(self):
         self.context = {}
         self.headers = {}
-        self.store = store.Store(*get_tarantool_address())
+        address = get_tarantool_address()
+        if address:
+            self.store = store.Store(*address)
 
+    @unittest.skipIf(get_tarantool_address() is None, "Store not available")
     def get_response(self, request):
         return api.method_handler({"body": request, "headers": self.headers}, self.context, self.store)
 
     def set_valid_auth(self, request):
         if request.get("login") == api.ADMIN_LOGIN:
-            request["token"] = hashlib.sha512((datetime.datetime.now().strftime("%Y%m%d%H") + api.ADMIN_SALT).encode("utf8")).hexdigest()
+            request["token"] = hashlib.sha512(
+                (datetime.datetime.now().strftime("%Y%m%d%H") + api.ADMIN_SALT).encode("utf8")).hexdigest()
         else:
             msg = request.get("account", "") + request.get("login", "") + api.SALT
             request["token"] = hashlib.sha512(msg.encode("utf8")).hexdigest()
@@ -130,7 +134,7 @@ class TestSuite(unittest.TestCase):
         # self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, basestring) for i in v)
         #                 for v in response.values()))
         self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, str) for i in v)
-                         for v in response.values()), arguments)
+                            for v in response.values()), arguments)
 
         self.assertEqual(self.context.get("nclients"), len(arguments["client_ids"]))
 
@@ -138,7 +142,6 @@ class TestSuite(unittest.TestCase):
 @unittest.skipIf(get_tarantool_address() is None, "Store not available")
 class TestFunctional(unittest.TestCase):
     def setUp(self):
-
         dir = dirname(dirname(dirname(__file__)))
         api_dir = os.path.join(dir, "app")
         print(api_dir)
@@ -174,7 +177,7 @@ class TestFunctional(unittest.TestCase):
         response = requests.post("http://localhost:8080/method", data=data, headers=headers)
         self.assertEqual(response.status_code, api.OK)
         data = response.json()
-        self.assertEqual(data["response"]["2"],  ["sport", "cars"])
+        self.assertEqual(data["response"]["2"], ["sport", "cars"])
 
     def test_score_requset(self):
         headers = {"Content-Type": "application/json"}
@@ -196,6 +199,38 @@ class TestFunctional(unittest.TestCase):
         self.assertEqual(response.status_code, api.OK)
         data = response.json()
         self.assertEqual(data["response"]["score"], 5.0)
+
+    def test_bad_request(self):
+        headers = {"Content-Type": "application/json"}
+        data = """{
+                "account": "horns&hoofs",
+                "login": "h&f",
+                "method": "bad_method",
+                "token": "55cc9ce545bcd144300fe9efc28e65d415b923ebb6be1e19d2750a2c03e80dd209a27954dca045e5bb12418e7d89b6d718a9e35af34e14e1d5bcd5a08f21fc95",
+                "arguments": {
+                    "field1": "42",
+                    "field2": "admin@admin.admin"
+                }
+            }}""".encode("utf8")
+        response = requests.post("http://localhost:8080/method", data=data, headers=headers)
+        self.assertEqual(response.status_code, api.BAD_REQUEST)
+
+    def test_invalid_request(self):
+        headers = {"Content-Type": "application/json"}
+        data = """{
+                       "account": "horns&hoofs",
+                       "login": "h&f",
+                       "method": "online_score",
+                       "token": "55cc9ce545bcd144300fe9efc28e65d415b923ebb6be1e19d2750a2c03e80dd209a27954dca045e5bb12418e7d89b6d718a9e35af34e14e1d5bcd5a08f21fc95",
+                       "arguments": {
+                           "phone": "89175002040",
+                           "email": "stupnikovotus.ru", 
+                           "birthday": "01.01.1890",
+                           "gender": 3
+                       }
+               }""".encode("utf8")
+        response = requests.post("http://localhost:8080/method", data=data, headers=headers)
+        self.assertEqual(response.status_code, api.INVALID_REQUEST)
 
 
 if __name__ == "__main__":
