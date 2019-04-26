@@ -1,150 +1,965 @@
-from os.path import dirname, join
-import sys
-sys.path.append(join(dirname(dirname(dirname(__file__))), "app"))
+# from os.path import dirname, join
+# import sys
+# sys.path.append(join(dirname(dirname(dirname(__file__))), "app"))
+import tests.helpers.import_app
 
-
-import hashlib
-import datetime
-import functools
+from tests.helpers.cases import cases as cases
 import unittest
-
 from app import api, store, scoring
-
 import json
 
-def cases(cases):
-    def decorator(f):
-        @functools.wraps(f)
-        def wrapper(*args):
-            for c in cases:
-                new_args = args + (c if isinstance(c, tuple) else (c,))
-                f(*new_args)
-        return wrapper
-    return decorator
+
+def init_field(field_cls, required=False, nullable=False, value=None):
+        field = field_cls(required, nullable)
+        if value is not None:
+            field.set_value(value)
+        return field
 
 
-class TestSuite(unittest.TestCase):
-    def setUp(self):
-        self.context = {}
-        self.headers = {}
-        self.store = store.Store()
-
-    def get_response(self, request):
-        return api.method_handler({"body": request, "headers": self.headers}, self.context, self.store)
-
-    def set_valid_auth(self, request):
-        if request.get("login") == api.ADMIN_LOGIN:
-            request["token"] = hashlib.sha512((datetime.datetime.now().strftime("%Y%m%d%H") + api.ADMIN_SALT).encode("utf8")).hexdigest()
-        else:
-            msg = request.get("account", "") + request.get("login", "") + api.SALT
-            request["token"] = hashlib.sha512(msg.encode("utf8")).hexdigest()
-
-    def test_empty_request(self):
-        _, code = self.get_response({})
-        self.assertEqual(api.INVALID_REQUEST, code)
+class TestCharField(unittest.TestCase):
+    field_cls = api.CharField
+    def test_invalid_required_field(self):
+        field = init_field(self.field_cls, required=True)
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
 
     @cases([
-        {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "token": "", "arguments": {}},
-        {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "token": "sdd", "arguments": {}},
-        {"account": "horns&hoofs", "login": "admin", "method": "online_score", "token": "", "arguments": {}},
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
     ])
-    def test_bad_auth(self, request):
-        _, code = self.get_response(request)
-        self.assertEqual(api.FORBIDDEN, code)
+    def test_valid_required_field(self, arguments):
+        field = init_field(self.field_cls, required=True, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
 
     @cases([
-        {"account": "horns&hoofs", "login": "h&f", "method": "online_score"},
-        {"account": "horns&hoofs", "login": "h&f", "arguments": {}},
-        {"account": "horns&hoofs", "method": "online_score", "arguments": {}},
+        {"field_class": api.CharField, "value": ""},
+        {"field_class": api.ArgumentsField, "value": ""},
+        {"field_class": api.EmailField, "value": ""},
+        {"field_class": api.PhoneField, "value": ""},
+        {"field_class": api.DateField, "value": ""},
+        {"field_class": api.BirthDayField, "value": ""},
+        {"field_class": api.GenderField, "value": ""},
+        {"field_class": api.ClientIDsField, "value": ""},
     ])
-    def test_invalid_method_request(self, request):
-        self.set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code)
-        self.assertTrue(len(response))
+    def test_invalid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
 
     @cases([
-        {},
-        {"phone": "79175002040"},
-        {"phone": "89175002040", "email": "stupnikov@otus.ru"},
-        {"phone": "79175002040", "email": "stupnikovotus.ru"},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": -1},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": "1"},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": 1, "birthday": "01.01.1890"},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": 1, "birthday": "XXX"},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": 1, "birthday": "01.01.2000", "first_name": 1},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": 1, "birthday": "01.01.2000",
-         "first_name": "s", "last_name": 2},
-        {"phone": "79175002040", "birthday": "01.01.2000", "first_name": "s"},
-        {"email": "stupnikov@otus.ru", "gender": 1, "last_name": 2},
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
     ])
-    def test_invalid_score_request(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments": arguments}
-        self.set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code, arguments)
-        self.assertTrue(len(response))
+    def test_valid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid, f"arguments = {arguments}")
 
     @cases([
-        {"phone": "79175002040", "email": "stupnikov@otus.ru"},
-        {"phone": 79175002040, "email": "stupnikov@otus.ru"},
-        {"gender": 1, "birthday": "01.01.2000", "first_name": "a", "last_name": "b"},
-        {"gender": 0, "birthday": "01.01.2000"},
-        {"gender": 2, "birthday": "01.01.2000"},
-        {"first_name": "a", "last_name": "b"},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": 1, "birthday": "01.01.2000",
-         "first_name": "a", "last_name": "b"},
+        {"field_class": api.CharField, "value": 123},
+        {"field_class": api.ArgumentsField, "value": "{'qqq': 'www'}"},
+        {"field_class": api.EmailField, "value": "qqq"},
+        {"field_class": api.PhoneField, "value": "7999123456"},
+        {"field_class": api.PhoneField, "value": "89991234567"},
+        {"field_class": api.PhoneField, "value": 7999123456},
+        {"field_class": api.PhoneField, "value": 89991234567},
+        {"field_class": api.DateField, "value": "33.04.2019"},
+        {"field_class": api.DateField, "value": "2019.04.01"},
+        {"field_class": api.DateField, "value": "04/01/1999"},
+        {"field_class": api.BirthDayField, "value": "21.04.1920"},
+        {"field_class": api.GenderField, "value": 5},
+        {"field_class": api.GenderField, "value": "1"},
+        {"field_class": api.ClientIDsField, "value": ["1", "2"]},
+        {"field_class": api.ClientIDsField, "value": 1},
     ])
-    def test_ok_score_request(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments": arguments}
-        self.set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.OK, code, arguments)
-        score = response.get("score")
-        self.assertTrue(isinstance(score, (int, float)) and score >= 0, arguments)
-        self.assertEqual(sorted(self.context["has"]), sorted(arguments.keys()))
+    def test_invalid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
 
-    def test_ok_score_admin_request(self):
-        arguments = {"phone": "79175002040", "email": "stupnikov@otus.ru"}
-        request = {"account": "horns&hoofs", "login": "admin", "method": "online_score", "arguments": arguments}
-        self.set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.OK, code)
-        score = response.get("score")
-        self.assertEqual(score, 42)
 
     @cases([
-        {},
-        {"date": "20.07.2017"},
-        {"client_ids": [], "date": "20.07.2017"},
-        {"client_ids": {1: 2}, "date": "20.07.2017"},
-        {"client_ids": ["1", "2"], "date": "20.07.2017"},
-        {"client_ids": [1, 2], "date": "XXX"},
+            {"field_class": api.CharField, "value": "qqq"},
+            {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+            {"field_class": api.EmailField, "value": "q@q"},
+            {"field_class": api.PhoneField, "value": "79991234567"},
+            {"field_class": api.DateField, "value": "21.04.2019"},
+            {"field_class": api.BirthDayField, "value": "21.04.2000"},
+            {"field_class": api.GenderField, "value": 1},
+            {"field_class": api.ClientIDsField, "value": [1, 2]},
     ])
-    def test_invalid_interests_request(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "clients_interests", "arguments": arguments}
-        self.set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code, arguments)
-        self.assertTrue(len(response))
+    def test_valid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+
+class TestArgumentField(unittest.TestCase):
+    field_cls = api.ArgumentsField
+
+    def test_invalid_required_field(self):
+        field = init_field(self.field_cls, required=True)
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
 
     @cases([
-        {"client_ids": [1, 2, 3], "date": datetime.datetime.today().strftime("%d.%m.%Y")},
-        {"client_ids": [1, 2], "date": "19.07.2017"},
-        {"client_ids": [0]},
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
     ])
-    def test_ok_interests_request(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "clients_interests", "arguments": arguments}
-        self.set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.OK, code, arguments)
-        self.assertEqual(len(arguments["client_ids"]), len(response))
-        # self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, basestring) for i in v)
-        #                 for v in response.values()))
-        self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, str) for i in v)
-                         for v in response.values()), arguments)
+    def test_valid_required_field(self, arguments):
+        field = init_field(self.field_cls, required=True, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
 
-        self.assertEqual(self.context.get("nclients"), len(arguments["client_ids"]))
+    @cases([
+        {"field_class": api.CharField, "value": ""},
+        {"field_class": api.ArgumentsField, "value": ""},
+        {"field_class": api.EmailField, "value": ""},
+        {"field_class": api.PhoneField, "value": ""},
+        {"field_class": api.DateField, "value": ""},
+        {"field_class": api.BirthDayField, "value": ""},
+        {"field_class": api.GenderField, "value": ""},
+        {"field_class": api.ClientIDsField, "value": ""},
+    ])
+    def test_invalid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid, f"arguments = {arguments}")
+
+    @cases([
+        {"field_class": api.CharField, "value": 123},
+        {"field_class": api.ArgumentsField, "value": "{'qqq': 'www'}"},
+        {"field_class": api.EmailField, "value": "qqq"},
+        {"field_class": api.PhoneField, "value": "7999123456"},
+        {"field_class": api.PhoneField, "value": "89991234567"},
+        {"field_class": api.PhoneField, "value": 7999123456},
+        {"field_class": api.PhoneField, "value": 89991234567},
+        {"field_class": api.DateField, "value": "33.04.2019"},
+        {"field_class": api.DateField, "value": "2019.04.01"},
+        {"field_class": api.DateField, "value": "04/01/1999"},
+        {"field_class": api.BirthDayField, "value": "21.04.1920"},
+        {"field_class": api.GenderField, "value": 5},
+        {"field_class": api.GenderField, "value": "1"},
+        {"field_class": api.ClientIDsField, "value": ["1", "2"]},
+        {"field_class": api.ClientIDsField, "value": 1},
+    ])
+    def test_invalid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+
+    @cases([
+            {"field_class": api.CharField, "value": "qqq"},
+            {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+            {"field_class": api.EmailField, "value": "q@q"},
+            {"field_class": api.PhoneField, "value": "79991234567"},
+            {"field_class": api.DateField, "value": "21.04.2019"},
+            {"field_class": api.BirthDayField, "value": "21.04.2000"},
+            {"field_class": api.GenderField, "value": 1},
+            {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+class TestEmailField(unittest.TestCase):
+    field_cls = api.EmailField
+    def test_invalid_required_field(self):
+        field = init_field(self.field_cls, required=True)
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_required_field(self, arguments):
+        field = init_field(self.field_cls, required=True, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+    @cases([
+        {"field_class": api.CharField, "value": ""},
+        {"field_class": api.ArgumentsField, "value": ""},
+        {"field_class": api.EmailField, "value": ""},
+        {"field_class": api.PhoneField, "value": ""},
+        {"field_class": api.DateField, "value": ""},
+        {"field_class": api.BirthDayField, "value": ""},
+        {"field_class": api.GenderField, "value": ""},
+        {"field_class": api.ClientIDsField, "value": ""},
+    ])
+    def test_invalid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid, f"arguments = {arguments}")
+
+    @cases([
+        {"field_class": api.CharField, "value": 123},
+        {"field_class": api.ArgumentsField, "value": "{'qqq': 'www'}"},
+        {"field_class": api.EmailField, "value": "qqq"},
+        {"field_class": api.PhoneField, "value": "7999123456"},
+        {"field_class": api.PhoneField, "value": "89991234567"},
+        {"field_class": api.PhoneField, "value": 7999123456},
+        {"field_class": api.PhoneField, "value": 89991234567},
+        {"field_class": api.DateField, "value": "33.04.2019"},
+        {"field_class": api.DateField, "value": "2019.04.01"},
+        {"field_class": api.DateField, "value": "04/01/1999"},
+        {"field_class": api.BirthDayField, "value": "21.04.1920"},
+        {"field_class": api.GenderField, "value": 5},
+        {"field_class": api.GenderField, "value": "1"},
+        {"field_class": api.ClientIDsField, "value": ["1", "2"]},
+        {"field_class": api.ClientIDsField, "value": 1},
+    ])
+    def test_invalid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+
+    @cases([
+            {"field_class": api.CharField, "value": "qqq"},
+            {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+            {"field_class": api.EmailField, "value": "q@q"},
+            {"field_class": api.PhoneField, "value": "79991234567"},
+            {"field_class": api.DateField, "value": "21.04.2019"},
+            {"field_class": api.BirthDayField, "value": "21.04.2000"},
+            {"field_class": api.GenderField, "value": 1},
+            {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+
+class TestPhoneField(unittest.TestCase):
+    field_cls = api.PhoneField
+
+    def test_invalid_required_field(self):
+        field = init_field(self.field_cls, required=True)
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_required_field(self, arguments):
+        field = init_field(self.field_cls, required=True, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+    @cases([
+        {"field_class": api.CharField, "value": ""},
+        {"field_class": api.ArgumentsField, "value": ""},
+        {"field_class": api.EmailField, "value": ""},
+        {"field_class": api.PhoneField, "value": ""},
+        {"field_class": api.DateField, "value": ""},
+        {"field_class": api.BirthDayField, "value": ""},
+        {"field_class": api.GenderField, "value": ""},
+        {"field_class": api.ClientIDsField, "value": ""},
+    ])
+    def test_invalid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid, f"arguments = {arguments}")
+
+    @cases([
+        {"field_class": api.CharField, "value": 123},
+        {"field_class": api.ArgumentsField, "value": "{'qqq': 'www'}"},
+        {"field_class": api.EmailField, "value": "qqq"},
+        {"field_class": api.PhoneField, "value": "7999123456"},
+        {"field_class": api.PhoneField, "value": "89991234567"},
+        {"field_class": api.PhoneField, "value": 7999123456},
+        {"field_class": api.PhoneField, "value": 89991234567},
+        {"field_class": api.DateField, "value": "33.04.2019"},
+        {"field_class": api.DateField, "value": "2019.04.01"},
+        {"field_class": api.DateField, "value": "04/01/1999"},
+        {"field_class": api.BirthDayField, "value": "21.04.1920"},
+        {"field_class": api.GenderField, "value": 5},
+        {"field_class": api.GenderField, "value": "1"},
+        {"field_class": api.ClientIDsField, "value": ["1", "2"]},
+        {"field_class": api.ClientIDsField, "value": 1},
+    ])
+    def test_invalid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+
+    @cases([
+            {"field_class": api.CharField, "value": "qqq"},
+            {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+            {"field_class": api.EmailField, "value": "q@q"},
+            {"field_class": api.PhoneField, "value": "79991234567"},
+            {"field_class": api.DateField, "value": "21.04.2019"},
+            {"field_class": api.BirthDayField, "value": "21.04.2000"},
+            {"field_class": api.GenderField, "value": 1},
+            {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+
+class TestDateField(unittest.TestCase):
+    field_cls = api.DateField
+
+    def test_invalid_required_field(self):
+        field = init_field(self.field_cls, required=True)
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_required_field(self, arguments):
+        field = init_field(self.field_cls, required=True, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+    @cases([
+        {"field_class": api.CharField, "value": ""},
+        {"field_class": api.ArgumentsField, "value": ""},
+        {"field_class": api.EmailField, "value": ""},
+        {"field_class": api.PhoneField, "value": ""},
+        {"field_class": api.DateField, "value": ""},
+        {"field_class": api.BirthDayField, "value": ""},
+        {"field_class": api.GenderField, "value": ""},
+        {"field_class": api.ClientIDsField, "value": ""},
+    ])
+    def test_invalid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid, f"arguments = {arguments}")
+
+    @cases([
+        {"field_class": api.CharField, "value": 123},
+        {"field_class": api.ArgumentsField, "value": "{'qqq': 'www'}"},
+        {"field_class": api.EmailField, "value": "qqq"},
+        {"field_class": api.PhoneField, "value": "7999123456"},
+        {"field_class": api.PhoneField, "value": "89991234567"},
+        {"field_class": api.PhoneField, "value": 7999123456},
+        {"field_class": api.PhoneField, "value": 89991234567},
+        {"field_class": api.DateField, "value": "33.04.2019"},
+        {"field_class": api.DateField, "value": "2019.04.01"},
+        {"field_class": api.DateField, "value": "04/01/1999"},
+        {"field_class": api.BirthDayField, "value": "21.04.1920"},
+        {"field_class": api.GenderField, "value": 5},
+        {"field_class": api.GenderField, "value": "1"},
+        {"field_class": api.ClientIDsField, "value": ["1", "2"]},
+        {"field_class": api.ClientIDsField, "value": 1},
+    ])
+    def test_invalid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+
+    @cases([
+            {"field_class": api.CharField, "value": "qqq"},
+            {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+            {"field_class": api.EmailField, "value": "q@q"},
+            {"field_class": api.PhoneField, "value": "79991234567"},
+            {"field_class": api.DateField, "value": "21.04.2019"},
+            {"field_class": api.BirthDayField, "value": "21.04.2000"},
+            {"field_class": api.GenderField, "value": 1},
+            {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+
+class TestBirthDayField(unittest.TestCase):
+    field_cls = api.BirthDayField
+
+    def test_invalid_required_field(self):
+        field = init_field(self.field_cls, required=True)
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_required_field(self, arguments):
+        field = init_field(self.field_cls, required=True, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+    @cases([
+        {"field_class": api.CharField, "value": ""},
+        {"field_class": api.ArgumentsField, "value": ""},
+        {"field_class": api.EmailField, "value": ""},
+        {"field_class": api.PhoneField, "value": ""},
+        {"field_class": api.DateField, "value": ""},
+        {"field_class": api.BirthDayField, "value": ""},
+        {"field_class": api.GenderField, "value": ""},
+        {"field_class": api.ClientIDsField, "value": ""},
+    ])
+    def test_invalid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid, f"arguments = {arguments}")
+
+    @cases([
+        {"field_class": api.CharField, "value": 123},
+        {"field_class": api.ArgumentsField, "value": "{'qqq': 'www'}"},
+        {"field_class": api.EmailField, "value": "qqq"},
+        {"field_class": api.PhoneField, "value": "7999123456"},
+        {"field_class": api.PhoneField, "value": "89991234567"},
+        {"field_class": api.PhoneField, "value": 7999123456},
+        {"field_class": api.PhoneField, "value": 89991234567},
+        {"field_class": api.DateField, "value": "33.04.2019"},
+        {"field_class": api.DateField, "value": "2019.04.01"},
+        {"field_class": api.DateField, "value": "04/01/1999"},
+        {"field_class": api.BirthDayField, "value": "21.04.1920"},
+        {"field_class": api.GenderField, "value": 5},
+        {"field_class": api.GenderField, "value": "1"},
+        {"field_class": api.ClientIDsField, "value": ["1", "2"]},
+        {"field_class": api.ClientIDsField, "value": 1},
+    ])
+    def test_invalid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+
+    @cases([
+            {"field_class": api.CharField, "value": "qqq"},
+            {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+            {"field_class": api.EmailField, "value": "q@q"},
+            {"field_class": api.PhoneField, "value": "79991234567"},
+            {"field_class": api.DateField, "value": "21.04.2019"},
+            {"field_class": api.BirthDayField, "value": "21.04.2000"},
+            {"field_class": api.GenderField, "value": 1},
+            {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+
+class TestGenderField(unittest.TestCase):
+    field_cls = api.GenderField
+    def test_invalid_required_field(self):
+        field = init_field(self.field_cls, required=True)
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_required_field(self, arguments):
+        field = init_field(self.field_cls, required=True, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+    @cases([
+        {"field_class": api.CharField, "value": ""},
+        {"field_class": api.ArgumentsField, "value": ""},
+        {"field_class": api.EmailField, "value": ""},
+        {"field_class": api.PhoneField, "value": ""},
+        {"field_class": api.DateField, "value": ""},
+        {"field_class": api.BirthDayField, "value": ""},
+        {"field_class": api.GenderField, "value": ""},
+        {"field_class": api.ClientIDsField, "value": ""},
+    ])
+    def test_invalid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid, f"arguments = {arguments}")
+
+    @cases([
+        {"field_class": api.CharField, "value": 123},
+        {"field_class": api.ArgumentsField, "value": "{'qqq': 'www'}"},
+        {"field_class": api.EmailField, "value": "qqq"},
+        {"field_class": api.PhoneField, "value": "7999123456"},
+        {"field_class": api.PhoneField, "value": "89991234567"},
+        {"field_class": api.PhoneField, "value": 7999123456},
+        {"field_class": api.PhoneField, "value": 89991234567},
+        {"field_class": api.DateField, "value": "33.04.2019"},
+        {"field_class": api.DateField, "value": "2019.04.01"},
+        {"field_class": api.DateField, "value": "04/01/1999"},
+        {"field_class": api.BirthDayField, "value": "21.04.1920"},
+        {"field_class": api.GenderField, "value": 5},
+        {"field_class": api.GenderField, "value": "1"},
+        {"field_class": api.ClientIDsField, "value": ["1", "2"]},
+        {"field_class": api.ClientIDsField, "value": 1},
+    ])
+    def test_invalid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+
+    @cases([
+            {"field_class": api.CharField, "value": "qqq"},
+            {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+            {"field_class": api.EmailField, "value": "q@q"},
+            {"field_class": api.PhoneField, "value": "79991234567"},
+            {"field_class": api.DateField, "value": "21.04.2019"},
+            {"field_class": api.BirthDayField, "value": "21.04.2000"},
+            {"field_class": api.GenderField, "value": 1},
+            {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+
+class TestClientIdsField(unittest.TestCase):
+    field_cls = api.ClientIDsField
+
+    def test_invalid_required_field(self):
+        field = init_field(self.field_cls, required=True)
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_required_field(self, arguments):
+        field = init_field(self.field_cls, required=True, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+    @cases([
+        {"field_class": api.CharField, "value": ""},
+        {"field_class": api.ArgumentsField, "value": ""},
+        {"field_class": api.EmailField, "value": ""},
+        {"field_class": api.PhoneField, "value": ""},
+        {"field_class": api.DateField, "value": ""},
+        {"field_class": api.BirthDayField, "value": ""},
+        {"field_class": api.GenderField, "value": ""},
+        {"field_class": api.ClientIDsField, "value": ""},
+    ])
+    def test_invalid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid, f"arguments = {arguments}")
+
+    @cases([
+        {"field_class": api.CharField, "value": 123},
+        {"field_class": api.ArgumentsField, "value": "{'qqq': 'www'}"},
+        {"field_class": api.EmailField, "value": "qqq"},
+        {"field_class": api.PhoneField, "value": "7999123456"},
+        {"field_class": api.PhoneField, "value": "89991234567"},
+        {"field_class": api.PhoneField, "value": 7999123456},
+        {"field_class": api.PhoneField, "value": 89991234567},
+        {"field_class": api.DateField, "value": "33.04.2019"},
+        {"field_class": api.DateField, "value": "2019.04.01"},
+        {"field_class": api.DateField, "value": "04/01/1999"},
+        {"field_class": api.BirthDayField, "value": "21.04.1920"},
+        {"field_class": api.GenderField, "value": 5},
+        {"field_class": api.GenderField, "value": "1"},
+        {"field_class": api.ClientIDsField, "value": ["1", "2"]},
+        {"field_class": api.ClientIDsField, "value": 1},
+    ])
+    def test_invalid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+
+    @cases([
+            {"field_class": api.CharField, "value": "qqq"},
+            {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+            {"field_class": api.EmailField, "value": "q@q"},
+            {"field_class": api.PhoneField, "value": "79991234567"},
+            {"field_class": api.DateField, "value": "21.04.2019"},
+            {"field_class": api.BirthDayField, "value": "21.04.2000"},
+            {"field_class": api.GenderField, "value": 1},
+            {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+
+class TestCharField(unittest.TestCase):
+    field_cls = api.CharField
+    def test_invalid_required_field(self):
+        field = init_field(self.field_cls, required=True)
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_required_field(self, arguments):
+        field = init_field(self.field_cls, required=True, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+    @cases([
+        {"field_class": api.CharField, "value": ""},
+        {"field_class": api.ArgumentsField, "value": ""},
+        {"field_class": api.EmailField, "value": ""},
+        {"field_class": api.PhoneField, "value": ""},
+        {"field_class": api.DateField, "value": ""},
+        {"field_class": api.BirthDayField, "value": ""},
+        {"field_class": api.GenderField, "value": ""},
+        {"field_class": api.ClientIDsField, "value": ""},
+    ])
+    def test_invalid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid, f"arguments = {arguments}")
+
+    @cases([
+        {"field_class": api.CharField, "value": 123},
+        {"field_class": api.ArgumentsField, "value": "{'qqq': 'www'}"},
+        {"field_class": api.EmailField, "value": "qqq"},
+        {"field_class": api.PhoneField, "value": "7999123456"},
+        {"field_class": api.PhoneField, "value": "89991234567"},
+        {"field_class": api.PhoneField, "value": 7999123456},
+        {"field_class": api.PhoneField, "value": 89991234567},
+        {"field_class": api.DateField, "value": "33.04.2019"},
+        {"field_class": api.DateField, "value": "2019.04.01"},
+        {"field_class": api.DateField, "value": "04/01/1999"},
+        {"field_class": api.BirthDayField, "value": "21.04.1920"},
+        {"field_class": api.GenderField, "value": 5},
+        {"field_class": api.GenderField, "value": "1"},
+        {"field_class": api.ClientIDsField, "value": ["1", "2"]},
+        {"field_class": api.ClientIDsField, "value": 1},
+    ])
+    def test_invalid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+
+    @cases([
+            {"field_class": api.CharField, "value": "qqq"},
+            {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+            {"field_class": api.EmailField, "value": "q@q"},
+            {"field_class": api.PhoneField, "value": "79991234567"},
+            {"field_class": api.DateField, "value": "21.04.2019"},
+            {"field_class": api.BirthDayField, "value": "21.04.2000"},
+            {"field_class": api.GenderField, "value": 1},
+            {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+
+class TestCharField(unittest.TestCase):
+    field_cls = api.CharField
+    def test_invalid_required_field(self):
+        field = init_field(self.field_cls, required=True)
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_required_field(self, arguments):
+        field = init_field(self.field_cls, required=True, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+    @cases([
+        {"field_class": api.CharField, "value": ""},
+        {"field_class": api.ArgumentsField, "value": ""},
+        {"field_class": api.EmailField, "value": ""},
+        {"field_class": api.PhoneField, "value": ""},
+        {"field_class": api.DateField, "value": ""},
+        {"field_class": api.BirthDayField, "value": ""},
+        {"field_class": api.GenderField, "value": ""},
+        {"field_class": api.ClientIDsField, "value": ""},
+    ])
+    def test_invalid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+    @cases([
+        {"field_class": api.CharField, "value": "qqq"},
+        {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+        {"field_class": api.EmailField, "value": "q@q"},
+        {"field_class": api.PhoneField, "value": "79991234567"},
+        {"field_class": api.DateField, "value": "21.04.2019"},
+        {"field_class": api.BirthDayField, "value": "21.04.2000"},
+        {"field_class": api.GenderField, "value": 1},
+        {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_not_nullable_field(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid, f"arguments = {arguments}")
+
+    @cases([
+        {"field_class": api.CharField, "value": 123},
+        {"field_class": api.ArgumentsField, "value": "{'qqq': 'www'}"},
+        {"field_class": api.EmailField, "value": "qqq"},
+        {"field_class": api.PhoneField, "value": "7999123456"},
+        {"field_class": api.PhoneField, "value": "89991234567"},
+        {"field_class": api.PhoneField, "value": 7999123456},
+        {"field_class": api.PhoneField, "value": 89991234567},
+        {"field_class": api.DateField, "value": "33.04.2019"},
+        {"field_class": api.DateField, "value": "2019.04.01"},
+        {"field_class": api.DateField, "value": "04/01/1999"},
+        {"field_class": api.BirthDayField, "value": "21.04.1920"},
+        {"field_class": api.GenderField, "value": 5},
+        {"field_class": api.GenderField, "value": "1"},
+        {"field_class": api.ClientIDsField, "value": ["1", "2"]},
+        {"field_class": api.ClientIDsField, "value": 1},
+    ])
+    def test_invalid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertFalse(res.is_valid)
+        self.assertTrue(res.reason)
+
+
+    @cases([
+            {"field_class": api.CharField, "value": "qqq"},
+            {"field_class": api.ArgumentsField, "value": {"qqq": "www"}},
+            {"field_class": api.EmailField, "value": "q@q"},
+            {"field_class": api.PhoneField, "value": "79991234567"},
+            {"field_class": api.DateField, "value": "21.04.2019"},
+            {"field_class": api.BirthDayField, "value": "21.04.2000"},
+            {"field_class": api.GenderField, "value": 1},
+            {"field_class": api.ClientIDsField, "value": [1, 2]},
+    ])
+    def test_valid_field_value(self, arguments):
+        field = init_field(self.field_cls, nullable=False, value=arguments["value"])
+        res = field.validate()
+        self.assertTrue(res.is_valid)
+
+
 
 
 class TestFieldsSuite(unittest.TestCase):

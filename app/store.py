@@ -2,7 +2,7 @@ import tarantool
 import logging
 import datetime
 import json
-
+import time
 
 class Store:
     def __init__(self, host="localhost", port=3301, user=None, password=None, reconnect_n=10, reconnect_delay=1, log=None):
@@ -15,7 +15,6 @@ class Store:
                                                password=password,
                                                connect_now=False)
         self.log = log or logging
-        self.cache_valid_thru = {}
 
     @staticmethod
     def get_id(key):
@@ -41,33 +40,24 @@ class Store:
         attempt = 0
         while attempt < self.reconnect_n:
             try:
-                space = self.get_space(key)
-                response = space.select(id)
-                if not response.data:
-                    return json.dumps([""])
-                value = response.data[0][1]
-                return json.dumps(value)
+                return self.try_get(key)
             except tarantool.error.NetworkError as e:
                 attempt += 1
-                self.log.info(f"connection error - {e}, reconnecting after {self.reconnect_delay} seconds, "
-                              f"attempt {attempt} of {self.reconnect_n}")
-                next_try = datetime.datetime.today() + datetime.timedelta(seconds=self.reconnect_delay)
-                while datetime.datetime.today() < next_try:
-                    pass
-                self.connect()
+                self.reconnect_after_error(e, attempt)
 
         raise ConnectionError("Unable connect to the store")
 
     def cache_get(self, key):
         id = self.get_id(key)
-        if id is None or key not in self.cache_valid_thru or self.cache_valid_thru[key] < datetime.datetime.today():
-            return None
         try:
             space = self.get_space(key)
             response = space.select(id)
             if not response.data:
                 return None
             value = response.data[0][1]
+            valid_thru = response.data[0][2]
+            if valid_thru < datetime.datetime.today():
+                return None
             if isinstance(value, list):
                 return str(value)
             return value
@@ -77,18 +67,16 @@ class Store:
 
     def cache_set(self, key, value, minutes):
         id = self.get_id(key)
-        try:
-            space = self.get_space(key)
-            response = space.select(id)
-            if not response.data:
-                space.insert((id, value))
-            else:
-                space.update(id, [("=", 1, value)])
-            self.cache_valid_thru[key] = datetime.datetime.today() + datetime.timedelta(minutes=minutes)
-            return True
-        except Exception as e:
-            self.log.warning(f"Error saving data to cache - {e}")
-            return None
+        attempt = 0
+        while attempt < self.reconnect_n:
+            try:
+                return self.try_cache_set(key, value, minutes)
+            except tarantool.error.NetworkError as e:
+                attempt += 1
+                self.reconnect_after_error(e, attempt)
+
+        self.log.warning(f"Error saving data to cache - {e}")
+        return None
 
     def connect(self):
         try:
@@ -98,6 +86,30 @@ class Store:
             self.log.warning(f"connection error - {e}")
             return False
         self.log.info("connected")
+        return True
+
+    def reconnect_after_error(self, e, attempt):
+        self.log.info(f"connection error - {e}, reconnecting after {self.reconnect_delay} seconds, "
+                      f"attempt {attempt} of {self.reconnect_n}")
+        time.sleep(self.reconnect_delay)
+        self.connect()
+
+    def try_get(self, key):
+        space = self.get_space(key)
+        response = space.select(id)
+        if not response.data:
+            return json.dumps([""])
+        value = response.data[0][1]
+        return json.dumps(value)
+
+    def try_cache_set(self, key, value, minutes):
+        space = self.get_space(key)
+        response = space.select(id)
+        valid_thru = datetime.datetime.today() + datetime.timedelta(minutes=minutes)
+        if not response.data:
+            space.insert((id, value, valid_thru))
+        else:
+            space.update(id, [("=", 1, value), ("=", 2, valid_thru)])
         return True
 
 #
