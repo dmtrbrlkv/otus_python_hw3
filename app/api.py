@@ -56,6 +56,7 @@ class Field(metaclass=ABCMeta):
     def __init__(self, required=False, nullable=False):
         self.required = required
         self.nullable = nullable
+        self.label = ""
 
     def __set__(self, instance, value):
         setattr(instance, self.name, value)
@@ -68,74 +69,67 @@ class Field(metaclass=ABCMeta):
         self.label = name
 
     @abstractmethod
-    def is_not_empty_value(self, instance):
+    def is_not_empty_value(self, value):
         """
         Return True if value not empty
         Must present in child
         """
 
     @abstractmethod
-    def check_valid_value(self, instance):
+    def check_valid_value(self, value):
         """
         Raise FieldValidationError if value not valid
         Must present in child
         """
 
-    def validate(self, instance):
-        if self.required and getattr(instance, self.name, None) is None:
+    def validate(self, value):
+        if self.required and value is None:
             return validation_res(False, f"field '{self.label}' is required")
-        if not self.required and getattr(instance, self.name, None) is None:
+        if not self.required and value is None:
             return validation_res(True, "")
-        if not self.nullable and not self.is_not_empty_value(instance):
+        if not self.nullable and not self.is_not_empty_value(value):
             return validation_res(False, f"field '{self.label}' is empty")
         try:
-            self.check_valid_value(instance)
+            self.check_valid_value(value)
         except FieldValidationError as e:
-            return validation_res(False, f"field '{self.label}', invalid value: {str(getattr(instance, self.name, None))} ({e})")
+            return validation_res(False, f"field '{self.label}', invalid value: {str(value)} ({e})")
         return validation_res(True, "")
 
 
 class CharField(Field):
-    def check_valid_value(self, instance):
-        value = getattr(instance, self.name, None)
+    def check_valid_value(self, value):
         if not isinstance(value, str):
             raise FieldValidationError("not 'str' type")
 
-    def is_not_empty_value(self, instance):
-        value = getattr(instance, self.name, None)
+    def is_not_empty_value(self, value):
         return isinstance(value, str) and value != ""
 
 
 class ArgumentsField(Field):
-    def check_valid_value(self, instance):
-        value = getattr(instance, self.name, None)
+    def check_valid_value(self, value):
         if not isinstance(value, dict):
             raise FieldValidationError("not 'dict' type")
 
-    def is_not_empty_value(self, instance):
-        value = getattr(instance, self.name, None)
+    def is_not_empty_value(self, value):
         return isinstance(value, dict) and value
 
 
 class EmailField(CharField):
-    def check_valid_value(self, instance):
-        value = getattr(instance, self.name, None)
-        super().check_valid_value(instance)
+    def check_valid_value(self, value):
+        super().check_valid_value(value)
         if "@" not in value:
             raise FieldValidationError("'@' not present")
 
-    def is_not_empty_value(self, instance):
-        value = getattr(instance, self.name, None)
+    def is_not_empty_value(self, value):
         return isinstance(value, str) and value != ""
 
 
 class PhoneField(Field):
-    def check_valid_value(self, instance):
-        value = getattr(instance, self.name, None)
+    def check_valid_value(self, value):
         if not isinstance(value, (int, str)):
             raise FieldValidationError("not '(int, str)' type")
 
-        value_str = str(getattr(instance, self.name, None))
+        value_str = str(value)
         if not value_str.isdigit():
             raise FieldValidationError("not digit")
         if not (len(value_str) == 11):
@@ -143,8 +137,7 @@ class PhoneField(Field):
         if not (value_str[0] == "7"):
             raise FieldValidationError("must start by '7'")
 
-    def is_not_empty_value(self, instance):
-        value = getattr(instance, self.name, None)
+    def is_not_empty_value(self, value):
         if isinstance(value, int):
             return True
         return isinstance(value, str) and value != ""
@@ -154,14 +147,16 @@ class DateField(CharField):
     pattern = r"^(?P<day>\d{2})\.(?P<month>\d{2})\.(?P<year>\d{4})$"
     template = re.compile(pattern)
 
-    def get_date(self, instance):
-        value = getattr(instance, self.name, None)
-        date = self.template.match(value)
-        year, month, day = map(int, (date.group("year"), date.group("month"), date.group("day")))
-        return datetime.date(year, month, day)
+    @classmethod
+    def get_date(cls, value):
+        try:
+            date = cls.template.match(value)
+            year, month, day = map(int, (date.group("year"), date.group("month"), date.group("day")))
+            return datetime.date(year, month, day)
+        except:
+            return None
 
-    def check_valid_value(self, instance):
-        value = getattr(instance, self.name, None)
+    def check_valid_value(self, value):
         if not isinstance(value, str):
             raise FieldValidationError("not 'str' type")
         try:
@@ -173,54 +168,47 @@ class DateField(CharField):
         except:
             raise FieldValidationError("can't convert to date")
 
-    def is_not_empty_value(self, instance):
-        value = getattr(instance, self.name, None)
+    def is_not_empty_value(self, value):
         return isinstance(value, str) and value != ""
-
-    def __get__(self, instance, owner):
-        if self.is_not_empty_value(instance):
-            return self.get_date(instance)
-        return None
 
 
 class BirthDayField(DateField):
     pattern = r"^(?P<day>\d{2})\.(?P<month>\d{2})\.(?P<year>\d{4})$"
     template = re.compile(pattern)
 
-    def check_valid_value(self, instance):
-        super().check_valid_value(instance)
-        date = self.get_date(instance)
+    def check_valid_value(self, value):
+        super().check_valid_value(value)
+        date = self.get_date(value)
         today = datetime.date.today()
         if (today - date) > (datetime.timedelta(days=365) * MAX_YEARS_FOR_BIRTHDAY):
             raise FieldValidationError(f"Not older than {MAX_YEARS_FOR_BIRTHDAY} years")
 
-    def is_not_empty_value(self, instance):
-        return super().is_not_empty_value(instance)
+        if today < date:
+            raise FieldValidationError("Not earlier than today")
+
+    def is_not_empty_value(self, value):
+        return super().is_not_empty_value(value)
 
 
 class GenderField(Field):
-    def check_valid_value(self, instance):
-        value = getattr(instance, self.name, None)
+    def check_valid_value(self, value):
         if not isinstance(value, int):
             raise FieldValidationError("not 'int' type")
         if value not in GENDERS:
             raise FieldValidationError("must by from <" + ", ".join(map(str, GENDERS.keys())) + ">")
 
-    def is_not_empty_value(self, instance):
-        value = getattr(instance, self.name, None)
+    def is_not_empty_value(self, value):
         return isinstance(value, int)
 
 
 class ClientIDsField(Field):
-    def check_valid_value(self, instance):
-        value = getattr(instance, self.name, None)
+    def check_valid_value(self, value):
         if not isinstance(value, list):
             raise FieldValidationError("not 'list' type")
         if not all(isinstance(x, int) for x in value):
             raise FieldValidationError("one or more element not 'int' type")
 
-    def is_not_empty_value(self, instance):
-        value = getattr(instance, self.name, None)
+    def is_not_empty_value(self, value):
         return isinstance(value, list) and value
 
 
@@ -272,7 +260,7 @@ class Request(metaclass=MetaRequest):
         invalid_fields = []
         invalid_reasons = []
         for field_name, field in self.declared_fields.items():
-            res = field.validate(self)
+            res = field.validate(getattr(self, field_name))
             if not res.is_valid:
                 invalid_fields.append(field_name)
                 invalid_reasons.append(res.reason)
@@ -327,7 +315,7 @@ class OnlineScoreRequest(Request):
 
         res = []
         for field_name, field in self.declared_fields.items():
-            if field.is_not_empty_value(self):
+            if field.is_not_empty_value(getattr(self, field_name)):
                 res.append(field_name)
         return res
 
@@ -379,7 +367,8 @@ def process_online_score_interests_request(request, ctx, store):
     ctx["has"] = request.filled_fields()
 
     return {"score": 42 if request.request.is_admin else get_score(store, request.phone, request.email,
-                                                                   request.birthday, request.gender, request.first_name,
+                                                                   BirthDayField.get_date(request.birthday),
+                                                                   request.gender, request.first_name,
                                                                    request.last_name)
             }, OK
 
