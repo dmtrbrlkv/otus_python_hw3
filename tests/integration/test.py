@@ -3,7 +3,7 @@
 # sys.path.append(join(dirname(dirname(dirname(__file__))), "app"))
 import tests.helpers.import_app
 
-from tests.helpers.cases import  cases as cases
+from tests.helpers.cases import cases as cases
 import unittest
 from app import api, store
 import subprocess
@@ -16,8 +16,10 @@ from tests.helpers.tarantool import get_tarantool_address as get_tarantool_addre
 
 class TestStoreIntegration(unittest.TestCase):
     def setUp(self):
-       self.store = store.Store(*get_tarantool_address())
-       self.store_na = store.Store()
+        address = get_tarantool_address()
+        if address:
+            self.store = store.Store(*address)
+        self.store_na = store.Store("###BadHost###")
 
     @unittest.skipIf(get_tarantool_address() is None, "Store not available")
     def test_available_store_get(self):
@@ -50,6 +52,7 @@ class TestStoreIntegration(unittest.TestCase):
     def test_not_available_cache_set(self):
         store = self.store_na
         self.assertIsNone(store.cache_set("i:42", ["42"], 1))
+
 
 if __name__ == "__main__":
     unittest.main()
