@@ -4,8 +4,10 @@ import datetime
 import json
 import time
 
+
 class Store:
-    def __init__(self, host="localhost", port=3301, user=None, password=None, reconnect_n=10, reconnect_delay=1, log=None):
+    def __init__(self, host="localhost", port=3301, user=None, password=None, reconnect_n=10, reconnect_delay=1,
+                 timeout=5, log=None):
         self.host = host
         self.port = port
         self.reconnect_n = reconnect_n
@@ -13,7 +15,8 @@ class Store:
         self.connection = tarantool.Connection(host, port,
                                                user=user,
                                                password=password,
-                                               connect_now=False)
+                                               connect_now=False,
+                                               connection_timeout=timeout)
         self.log = log or logging
 
     @staticmethod
@@ -34,9 +37,6 @@ class Store:
             return None
 
     def get(self, key):
-        id = self.get_id(key)
-        if id is None:
-            raise ValueError("Invalid key")
         attempt = 0
         while attempt < self.reconnect_n:
             try:
@@ -54,8 +54,13 @@ class Store:
             response = space.select(id)
             if not response.data:
                 return None
+            if len(response.data[0]) < 2:
+                return None
             value = response.data[0][1]
             valid_thru = response.data[0][2]
+            if not valid_thru:
+                return None
+            valid_thru = datetime.datetime.fromisoformat(valid_thru)
             if valid_thru < datetime.datetime.today():
                 return None
             if isinstance(value, list):
@@ -66,7 +71,6 @@ class Store:
             return None
 
     def cache_set(self, key, value, minutes):
-        id = self.get_id(key)
         attempt = 0
         while attempt < self.reconnect_n:
             try:
@@ -74,8 +78,9 @@ class Store:
             except tarantool.error.NetworkError as e:
                 attempt += 1
                 self.reconnect_after_error(e, attempt)
+                error = str(e)
 
-        self.log.warning(f"Error saving data to cache - {e}")
+        self.log.warning(f"Error saving data to cache - {error}")
         return None
 
     def connect(self):
@@ -95,6 +100,9 @@ class Store:
         self.connect()
 
     def try_get(self, key):
+        id = self.get_id(key)
+        if id is None:
+            raise ValueError("Invalid key")
         space = self.get_space(key)
         response = space.select(id)
         if not response.data:
@@ -103,33 +111,17 @@ class Store:
         return json.dumps(value)
 
     def try_cache_set(self, key, value, minutes):
+        id = self.get_id(key)
+        if id is None:
+            raise ValueError("Invalid key")
         space = self.get_space(key)
         response = space.select(id)
         valid_thru = datetime.datetime.today() + datetime.timedelta(minutes=minutes)
+        valid_thru = valid_thru.isoformat()
+
         if not response.data:
             space.insert((id, value, valid_thru))
         else:
             space.update(id, [("=", 1, value), ("=", 2, valid_thru)])
         return True
 
-#
-# store = Store()
-# store.connect()
-#
-# for i in range(10):
-#     res = store.cache_get("uid:www")
-#     print(res)
-#     res = 42
-#     store.cache_set("uid:www", res, 10)
-#
-#     res = store.cache_get("i:1")
-#     print(res)
-#     res = ["music"]
-#     store.cache_set("i:1", res, 10)
-#
-#     res = store.cache_get("i:2")
-#     res = ["sport", "cars"]
-#     print(res)
-#     store.cache_set("i:2", res, 10)
-#
-#     time.sleep(2)
