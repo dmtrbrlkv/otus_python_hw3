@@ -11,7 +11,9 @@ def cases(cases):
                 try:
                     f(*new_args)
                 except Exception as e:
-                    print(f"Case: {c}", file=sys.stderr)
+                    e_args = list(e.args)
+                    e_args.append(f"Case: {c}")
+                    e.args = tuple(e_args)
                     raise
         return wrapper
     return decorator
